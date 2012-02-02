@@ -34,9 +34,12 @@ module GoogleVisualization
           var chartData = {};
           var visualizationCharts = {};
           function drawCharts() { )
+
       @google_visualizations.each do |id, vis|
         output += generate_visualization(id, vis[0], vis[1], vis[2])
+        output += generate_callbacks(id, vis[3])
       end
+
       output += "} </script>"
       raw(output + "<!-- Rendered Google Visualizations /-->")
     else
@@ -53,10 +56,12 @@ module GoogleVisualization
   # @param [String] id the id of the chart. corresponds to the id of the div
   # @param [String] chart_type the kind of chart to render
   # @param [Hash] options the configuration options for the graph
-  def visualization(id, chart_type, options = {}, &block)
+  # @param [Hash] callbacks are passed like {:ready => 'function_name()', :onmouseout => 'function_name'}
+  def visualization(id, chart_type, options = {}, callbacks = {}, &block)
     init
     chart_type = chart_type.camelize      # Camelize the chart type, as the Google API follows Camel Case conventions (e.g. ColumnChart, MotionChart)
     options.stringify_keys!               # Ensure consistent hash access
+    callbacks.stringify_keys!             # Callbacks
     @visualization_packages << chart_type # Add the chart type to the packages needed to be loaded
 
     # Initialize the data table (with hashed options), and pass it the block for cleaner adding of attributes within the block
@@ -66,7 +71,7 @@ module GoogleVisualization
     end
 
     html_options = options.delete("html") || {} # Extract the html options
-    @google_visualizations.merge!(id => [chart_type, table, options]) # Store our chart in an instance variable to be rendered in the head tag
+    @google_visualizations.merge!(id => [chart_type, table, options, callbacks]) # Store our chart in an instance variable to be rendered in the head tag
 
     # Output a div with given id on the page right now, that our graph will be embedded into
     html = html_options.collect {|key,value| "#{key}=\"#{value}\"" }.join(" ")
@@ -88,7 +93,7 @@ module GoogleVisualization
   # @param [DataTable] table the DataTable containing the column definitions and data rows
   # @param [Hash] options the view formatting options
   # @return [String] javascript that creates the chart, and adds it to the window variable
-  def generate_visualization(id, chart_type, table, options={})
+  def generate_visualization(id, chart_type, table, options = {})
     # Generate the js chart data
     output = "chartData['#{id}'] = new google.visualization.DataTable();"
     table.columns.each do |col|
@@ -101,6 +106,18 @@ module GoogleVisualization
       visualizationCharts['#{id}'] = new google.visualization.#{chart_type.to_s.camelize}(document.getElementById('#{id}'));
       visualizationCharts['#{id}'].draw(chartData['#{id}'], {#{option_str}});
     )
+  end
+
+  # Attach callback listeners to the graph/chart
+  # @param [String] id the id for the given chart, this should be unique per html page
+  # @param [Hash] callback methods
+  # @return [String] google's callback methods
+  def generate_callbacks(id, callbacks = {})
+    cs = callbacks.collect do |meth, func|
+      "google.visualization.events.addListener(visualizationCharts['#{id}'], '#{meth}', #{func});"
+    end
+
+    cs.join
   end
 
   # Parse options hash into a string containing a javascript hash key-value pairs
